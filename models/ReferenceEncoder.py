@@ -21,8 +21,7 @@ class ReferenceEncoder(nn.Module):
 
     def forward(self, pixel_values):
         outputs = self.model(pixel_values)
-        pooled_output = outputs.pooler_output
-        return pooled_output
+        return outputs.pooler_output
 
 
 

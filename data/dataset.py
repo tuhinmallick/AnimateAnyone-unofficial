@@ -15,7 +15,8 @@ from transformers import CLIPProcessor
 
 import torch.distributed as dist
 def zero_rank_print(s):
-    if (not dist.is_initialized()) and (dist.is_initialized() and dist.get_rank() == 0): print("### " + s)
+    if (not dist.is_initialized()) and (dist.is_initialized() and dist.get_rank() == 0):
+        print(f"### {s}")
 
 
 class TikTok(Dataset):
@@ -106,24 +107,20 @@ class TikTok(Dataset):
                 break
             except Exception as e:
                 idx = random.randint(0, self.length-1)
-        
+
         pixel_values = self.pixel_transforms(pixel_values)
         pixel_values_pose = self.pixel_transforms(pixel_values_pose)
-        
+
         pixel_values_ref_img = pixel_values_ref_img.unsqueeze(0)
         pixel_values_ref_img = self.pixel_transforms(pixel_values_ref_img)
         pixel_values_ref_img = pixel_values_ref_img.squeeze(0)
-        
-        # clip_ref_image = clip_ref_image.unsqueeze(1) # [bs,1,768]
 
-        sample = dict(
-            pixel_values=pixel_values, 
+        return dict(
+            pixel_values=pixel_values,
             pixel_values_pose=pixel_values_pose,
             clip_ref_image=clip_ref_image,
-            pixel_values_ref_img=pixel_values_ref_img
-            )
-        
-        return sample
+            pixel_values_ref_img=pixel_values_ref_img,
+        )
 
 class UBC_Fashion(Dataset):
     def __init__(
@@ -163,47 +160,49 @@ class UBC_Fashion(Dataset):
     def get_batch(self,idx):
         video_dict = self.dataset[idx]
         folder_id, folder_name = video_dict['folder_id'], video_dict['folder_name']
-        
+
         video_dir    =    os.path.join(self.video_folder, self.spilt, f"{folder_name}.mp4")
-        video_pose_dir =  os.path.join(self.video_folder, self.spilt+"_dwpose", f"{folder_name}.mp4")
-        
+        video_pose_dir = os.path.join(
+            self.video_folder, f"{self.spilt}_dwpose", f"{folder_name}.mp4"
+        )
+
         video_reader = VideoReader(video_dir)
         video_reader_pose = VideoReader(video_pose_dir)
-        
-        
+
+
         assert len(video_reader) == len(video_reader_pose), f"len(video_reader) != len(video_reader_pose) in video {idx}"
-        
+
         video_length = len(video_reader)
-        
+
         if not self.is_image:
             clip_length = min(video_length, (self.sample_n_frames - 1) * self.sample_stride + 1)
             start_idx   = random.randint(0, video_length - clip_length)
             batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
         else:
             batch_index = [random.randint(0, video_length - 1)]
-            
+
         pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
         pixel_values = pixel_values / 255.
         # del video_reader
-        
+
         pixel_values_pose = torch.from_numpy(video_reader_pose.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
         pixel_values_pose = pixel_values_pose / 255.
         del video_reader_pose
-        
+
         if self.is_image:
             pixel_values = pixel_values[0]
             pixel_values_pose = pixel_values_pose[0]
-        
+
         ref_img_idx = random.randint(0, video_length - 1)
         ref_img = video_reader[ref_img_idx]
         ref_img_pil = Image.fromarray(ref_img.asnumpy())
-        
+
         clip_ref_image = self.clip_image_processor(images=ref_img_pil, return_tensors="pt").pixel_values
-        
+
         pixel_values_ref_img = torch.from_numpy(ref_img.asnumpy()).permute(2, 0, 1).contiguous()
         pixel_values_ref_img = pixel_values_ref_img / 255.
         del video_reader
-        
+
         # pixel_values: train objective
         # pixel_values_pose: corresponding pose
         # clip_ref_image: processed reference clip image
@@ -217,24 +216,20 @@ class UBC_Fashion(Dataset):
                 break
             except Exception as e:
                 idx = random.randint(0, self.length-1)
-        
+
         pixel_values = self.pixel_transforms(pixel_values)
         pixel_values_pose = self.pixel_transforms(pixel_values_pose)
-        
+
         pixel_values_ref_img = pixel_values_ref_img.unsqueeze(0)
         pixel_values_ref_img = self.pixel_transforms(pixel_values_ref_img)
         pixel_values_ref_img = pixel_values_ref_img.squeeze(0)
-        
-        # clip_ref_image = clip_ref_image.unsqueeze(1) # [bs,1,768]
 
-        sample = dict(
-            pixel_values=pixel_values, 
+        return dict(
+            pixel_values=pixel_values,
             pixel_values_pose=pixel_values_pose,
             clip_ref_image=clip_ref_image,
-            pixel_values_ref_img=pixel_values_ref_img
-            )
-        
-        return sample
+            pixel_values_ref_img=pixel_values_ref_img,
+        )
 
 
 

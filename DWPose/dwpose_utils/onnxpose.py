@@ -66,10 +66,7 @@ def inference(sess: ort.InferenceSession, img: np.ndarray) -> np.ndarray:
 
         # build output
         sess_input = {sess.get_inputs()[0].name: input}
-        sess_output = []
-        for out in sess.get_outputs():
-            sess_output.append(out.name)
-
+        sess_output = [out.name for out in sess.get_outputs()]
         # run model
         outputs = sess.run(sess_output, sess_input)
         all_out.append(outputs)
@@ -194,8 +191,7 @@ def _get_3rd_point(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         np.ndarray: The 3rd point.
     """
     direction = a - b
-    c = b + np.r_[-direction[1], direction[0]]
-    return c
+    return b + np.r_[-direction[1], direction[0]]
 
 
 def get_warp_matrix(center: np.ndarray,
@@ -244,12 +240,11 @@ def get_warp_matrix(center: np.ndarray,
     dst[1, :] = np.array([dst_w * 0.5, dst_h * 0.5]) + dst_dir
     dst[2, :] = _get_3rd_point(dst[0, :], dst[1, :])
 
-    if inv:
-        warp_mat = cv2.getAffineTransform(np.float32(dst), np.float32(src))
-    else:
-        warp_mat = cv2.getAffineTransform(np.float32(src), np.float32(dst))
-
-    return warp_mat
+    return (
+        cv2.getAffineTransform(np.float32(dst), np.float32(src))
+        if inv
+        else cv2.getAffineTransform(np.float32(src), np.float32(dst))
+    )
 
 
 def top_down_affine(input_size: dict, bbox_scale: dict, bbox_center: dict,
