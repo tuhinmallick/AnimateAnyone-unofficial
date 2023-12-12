@@ -47,11 +47,7 @@ class DWposeDetector:
             score = subset[:,:18]
             for i in range(len(score)):
                 for j in range(len(score[i])):
-                    if score[i][j] > 0.3:
-                        score[i][j] = int(18*i+j)
-                    else:
-                        score[i][j] = -1
-
+                    score[i][j] = int(18*i+j) if score[i][j] > 0.3 else -1
             un_visible = subset<0.3
             candidate[un_visible] = -1
 
@@ -61,7 +57,7 @@ class DWposeDetector:
 
             hands = candidate[:,92:113]
             hands = np.vstack([hands, candidate[:,113:]])
-            
+
             bodies = dict(candidate=body, subset=score)
             pose = dict(bodies=bodies, hands=hands, faces=faces)
 

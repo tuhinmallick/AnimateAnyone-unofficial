@@ -60,30 +60,30 @@ def main(args):
 
     *_, func_args = inspect.getargvalues(inspect.currentframe())
     func_args = dict(func_args)
-    
+
     config  = OmegaConf.load(args.config)
-      
+
     # Initialize distributed training
     device = torch.device(f"cuda:{args.rank}")
     dist_kwargs = {"rank":args.rank, "world_size":args.world_size, "dist":args.dist}
-    
+
     if config.savename is None:
         time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         savedir = f"samples/{Path(args.config).stem}-{time_str}"
     else:
         savedir = f"samples/{config.savename}"
-        
+
     if args.dist:
         dist.broadcast_object_list([savedir], 0)
         dist.barrier()
-    
+
     if args.rank == 0:
         os.makedirs(savedir, exist_ok=True)
 
     inference_config = OmegaConf.load(config.inference_config)
-        
+
     motion_module = config.motion_module
-    
+
     ### >>> create animation pipeline >>> ###
     tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_clip_path, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(config.pretrained_clip_path, subfolder="text_encoder")
@@ -107,8 +107,8 @@ def main(args):
     clip_image_encoder = ReferenceEncoder(model_path=config.pretrained_clip_path)
     clip_image_processor = CLIPProcessor.from_pretrained(config.pretrained_clip_path,local_files_only=True)
 
-    
-    
+
+
     ### Load controlnet
     # controlnet   = ControlNetModel.from_pretrained(config.pretrained_controlnet_path)
 
@@ -130,7 +130,7 @@ def main(args):
     #     scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
     #     # NOTE: UniPCMultistepScheduler
     # )
-    
+
     pipeline = AnimationAnyonePipeline(
         vae=vae, text_encoder=text_encoder, tokenizer=tokenizer, unet=unet,
         scheduler=DDIMScheduler(**OmegaConf.to_container(inference_config.noise_scheduler_kwargs)),
@@ -140,7 +140,8 @@ def main(args):
     # 1. unet ckpt
     # 1.1 motion module
     motion_module_state_dict = torch.load(motion_module, map_location="cpu")
-    if "global_step" in motion_module_state_dict: func_args.update({"global_step": motion_module_state_dict["global_step"]})
+    if "global_step" in motion_module_state_dict:
+        func_args["global_step"] = motion_module_state_dict["global_step"]
     motion_module_state_dict = motion_module_state_dict['state_dict'] if 'state_dict' in motion_module_state_dict else motion_module_state_dict
     try:
         # extra steps for self-trained models
@@ -171,13 +172,13 @@ def main(args):
 
     pipeline.to(device)
     ### <<< create validation pipeline <<< ###
-    
+
     random_seeds = config.get("seed", [-1])
     random_seeds = [random_seeds] if isinstance(random_seeds, int) else list(random_seeds)
     random_seeds = random_seeds * len(config.source_image) if len(random_seeds) == 1 else random_seeds
-    
+
     # input test videos (either source video/ conditions)
-    
+
     test_videos = config.video_path
     source_images = config.source_image
     num_actual_inference_steps = config.get("num_actual_inference_steps", config.steps)
@@ -210,23 +211,23 @@ def main(args):
             if config.max_length is not None:
                 control = control[config.offset: (config.offset+config.max_length)]
             control = np.array(control)
-        
+
         if source_image.endswith(".mp4"):
             source_image = np.array(Image.fromarray(VideoReader(source_image).read()[0]).resize((size, size)))
         else:
             source_image = np.array(Image.open(source_image).resize((size, size)))
         H, W, C = source_image.shape
-        
+
         print(f"current seed: {torch.initial_seed()}")
         init_latents = None
-        
+
         # print(f"sampling {prompt} ...")
         original_length = control.shape[0]
         if control.shape[0] % config.L > 0:
             control = np.pad(control, ((0, config.L-control.shape[0] % config.L), (0, 0), (0, 0), (0, 0)), mode='edge')
-        
+
         control = control[0]
-        
+
         generator = torch.Generator(device=torch.device("cuda:0"))
         generator.manual_seed(torch.initial_seed())
         # sample = pipeline(
@@ -247,7 +248,7 @@ def main(args):
         #     source_image             = source_image,
         #     **dist_kwargs,
         # ).videos
-        
+
         sample = pipeline(
             prompt,
             negative_prompt         = n_prompt,
@@ -274,14 +275,16 @@ def main(args):
             source_images = np.array([source_image] * original_length)
             source_images = rearrange(torch.from_numpy(source_images), "t h w c -> 1 c t h w") / 255.0
             samples_per_video.append(source_images)
-            
+
             control = control / 255.0
             control = rearrange(control, "t h w c -> 1 c t h w")
             control = torch.from_numpy(control)
-            samples_per_video.append(control[:, :, :original_length])
-
-            samples_per_video.append(sample[:, :, :original_length])
-                
+            samples_per_video.extend(
+                (
+                    control[:, :, :original_length],
+                    sample[:, :, :original_length],
+                )
+            )
             samples_per_video = torch.cat(samples_per_video)
 
             video_name = os.path.basename(test_video)[:-4]
@@ -291,11 +294,14 @@ def main(args):
 
             if config.save_individual_videos:
                 save_videos_grid(samples_per_video[1:2], f"{savedir}/videos/{source_name}_{video_name}/ctrl.mp4")
-                save_videos_grid(samples_per_video[0:1], f"{savedir}/videos/{source_name}_{video_name}/orig.mp4")
-                
+                save_videos_grid(
+                    samples_per_video[:1],
+                    f"{savedir}/videos/{source_name}_{video_name}/orig.mp4",
+                )
+
         if args.dist:
             dist.barrier()
-               
+
     if args.rank == 0:
         OmegaConf.save(config, f"{savedir}/config.yaml")
 

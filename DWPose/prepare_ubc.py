@@ -40,8 +40,8 @@ detect_resolution = 768
 
 for sub_folder in sub_folders:
     path = os.path.join(dataset_folder, sub_folder)
-    output_folder = os.path.join(dataset_folder, sub_folder + '_dwpose')
-    
+    output_folder = os.path.join(dataset_folder, f'{sub_folder}_dwpose')
+
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 

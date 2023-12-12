@@ -41,19 +41,16 @@ def multiclass_nms(boxes, scores, nms_thr, score_thr):
         valid_score_mask = cls_scores > score_thr
         if valid_score_mask.sum() == 0:
             continue
-        else:
-            valid_scores = cls_scores[valid_score_mask]
-            valid_boxes = boxes[valid_score_mask]
-            keep = nms(valid_boxes, valid_scores, nms_thr)
-            if len(keep) > 0:
-                cls_inds = np.ones((len(keep), 1)) * cls_ind
-                dets = np.concatenate(
-                    [valid_boxes[keep], valid_scores[keep, None], cls_inds], 1
-                )
-                final_dets.append(dets)
-    if len(final_dets) == 0:
-        return None
-    return np.concatenate(final_dets, 0)
+        valid_scores = cls_scores[valid_score_mask]
+        valid_boxes = boxes[valid_score_mask]
+        keep = nms(valid_boxes, valid_scores, nms_thr)
+        if len(keep) > 0:
+            cls_inds = np.ones((len(keep), 1)) * cls_ind
+            dets = np.concatenate(
+                [valid_boxes[keep], valid_scores[keep, None], cls_inds], 1
+            )
+            final_dets.append(dets)
+    return None if not final_dets else np.concatenate(final_dets, 0)
 
 def demo_postprocess(outputs, img_size, p6=False):
     grids = []
@@ -113,13 +110,11 @@ def inference_detector(session, oriImg):
     boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3]/2.
     boxes_xyxy /= ratio
     dets = multiclass_nms(boxes_xyxy, scores, nms_thr=0.45, score_thr=0.1)
-    if dets is not None:
-        final_boxes, final_scores, final_cls_inds = dets[:, :4], dets[:, 4], dets[:, 5]
-        isscore = final_scores>0.3
-        iscat = final_cls_inds == 0
-        isbbox = [ i and j for (i, j) in zip(isscore, iscat)]
-        final_boxes = final_boxes[isbbox]
-    else:
-        final_boxes = np.array([])
+    if dets is None:
+        return np.array([])
 
-    return final_boxes
+    final_boxes, final_scores, final_cls_inds = dets[:, :4], dets[:, 4], dets[:, 5]
+    isscore = final_scores>0.3
+    iscat = final_cls_inds == 0
+    isbbox = [ i and j for (i, j) in zip(isscore, iscat)]
+    return final_boxes[isbbox]

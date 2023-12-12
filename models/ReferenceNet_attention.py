@@ -84,7 +84,7 @@ class ReferenceNetAttention():
                 .to(device)
                 .bool()
             )
-        
+
         def hacked_basic_transformer_inner_forward(
             self,
             hidden_states: torch.FloatTensor,
@@ -131,7 +131,7 @@ class ReferenceNetAttention():
                     hidden_states_uc = self.attn1(modify_norm_hidden_states, 
                                                 encoder_hidden_states=modify_norm_hidden_states,
                                                 attention_mask=attention_mask)[:,:hidden_states.shape[-2],:] + hidden_states
-                    
+
                     # hidden_states_uc = self.attn1(norm_hidden_states, 
                     #                             encoder_hidden_states=torch.cat([norm_hidden_states] + self.bank, dim=1),
                     #                             attention_mask=attention_mask) + hidden_states
@@ -150,7 +150,7 @@ class ReferenceNetAttention():
                             attention_mask=attention_mask,
                         ) + hidden_states[_uc_mask]
                     hidden_states = hidden_states_c.clone()
-                        
+
                     self.bank.clear()
                     if self.attn2 is not None:
                         # Cross-Attention
@@ -179,7 +179,7 @@ class ReferenceNetAttention():
                             hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)
 
                     return hidden_states
-                
+
             if self.use_ada_layer_norm_zero:
                 attn_output = gate_msa.unsqueeze(1) * attn_output
             hidden_states = attn_output + hidden_states
@@ -215,9 +215,22 @@ class ReferenceNetAttention():
 
         if self.reference_attn:
             if self.fusion_blocks == "midup":
-                attn_modules = [module for module in (torch_dfs(self.unet.mid_block)+torch_dfs(self.unet.up_blocks)) if isinstance(module, BasicTransformerBlock) or isinstance(module, _BasicTransformerBlock)]
+                attn_modules = [
+                    module
+                    for module in torch_dfs(self.unet.mid_block)
+                    + torch_dfs(self.unet.up_blocks)
+                    if isinstance(
+                        module, (BasicTransformerBlock, _BasicTransformerBlock)
+                    )
+                ]
             elif self.fusion_blocks == "full":
-                attn_modules = [module for module in torch_dfs(self.unet) if isinstance(module, BasicTransformerBlock) or isinstance(module, _BasicTransformerBlock)]            
+                attn_modules = [
+                    module
+                    for module in torch_dfs(self.unet)
+                    if isinstance(
+                        module, (BasicTransformerBlock, _BasicTransformerBlock)
+                    )
+                ]
             attn_modules = sorted(attn_modules, key=lambda x: -x.norm1.normalized_shape[0])
 
             for i, module in enumerate(attn_modules):
@@ -227,29 +240,55 @@ class ReferenceNetAttention():
                 module.attn_weight = float(i) / float(len(attn_modules))
     
     def update(self, writer, dtype=torch.float16):
-        if self.reference_attn:
-            if self.fusion_blocks == "midup":
-                reader_attn_modules = [module for module in (torch_dfs(self.unet.mid_block)+torch_dfs(self.unet.up_blocks)) if isinstance(module, _BasicTransformerBlock)]
-                writer_attn_modules = [module for module in (torch_dfs(writer.unet.mid_block)+torch_dfs(writer.unet.up_blocks)) if isinstance(module, BasicTransformerBlock)]
-            elif self.fusion_blocks == "full":
-                reader_attn_modules = [module for module in torch_dfs(self.unet) if isinstance(module, _BasicTransformerBlock) or isinstance(module, BasicTransformerBlock)]
-                writer_attn_modules = [module for module in torch_dfs(writer.unet) if isinstance(module, _BasicTransformerBlock) or isinstance(module, BasicTransformerBlock)]
-            reader_attn_modules = sorted(reader_attn_modules, key=lambda x: -x.norm1.normalized_shape[0])    
-            writer_attn_modules = sorted(writer_attn_modules, key=lambda x: -x.norm1.normalized_shape[0])
-            
-            # print('reader_attn_modules:',reader_attn_modules)
-            # print('writer_attn_modules:',writer_attn_modules)
-              
-            for r, w in zip(reader_attn_modules, writer_attn_modules):
-                r.bank = [v.clone().to(dtype) for v in w.bank]
+        if not self.reference_attn:
+            return
+        if self.fusion_blocks == "midup":
+            reader_attn_modules = [module for module in (torch_dfs(self.unet.mid_block)+torch_dfs(self.unet.up_blocks)) if isinstance(module, _BasicTransformerBlock)]
+            writer_attn_modules = [module for module in (torch_dfs(writer.unet.mid_block)+torch_dfs(writer.unet.up_blocks)) if isinstance(module, BasicTransformerBlock)]
+        elif self.fusion_blocks == "full":
+            reader_attn_modules = [
+                module
+                for module in torch_dfs(self.unet)
+                if isinstance(
+                    module, (_BasicTransformerBlock, BasicTransformerBlock)
+                )
+            ]
+            writer_attn_modules = [
+                module
+                for module in torch_dfs(writer.unet)
+                if isinstance(
+                    module, (_BasicTransformerBlock, BasicTransformerBlock)
+                )
+            ]
+        reader_attn_modules = sorted(reader_attn_modules, key=lambda x: -x.norm1.normalized_shape[0])
+        writer_attn_modules = sorted(writer_attn_modules, key=lambda x: -x.norm1.normalized_shape[0])
+
+        # print('reader_attn_modules:',reader_attn_modules)
+        # print('writer_attn_modules:',writer_attn_modules)
+
+        for r, w in zip(reader_attn_modules, writer_attn_modules):
+            r.bank = [v.clone().to(dtype) for v in w.bank]
                 # w.bank.clear()
     
     def clear(self):
         if self.reference_attn:
             if self.fusion_blocks == "midup":
-                reader_attn_modules = [module for module in (torch_dfs(self.unet.mid_block)+torch_dfs(self.unet.up_blocks)) if isinstance(module, BasicTransformerBlock) or isinstance(module, _BasicTransformerBlock)]
+                reader_attn_modules = [
+                    module
+                    for module in torch_dfs(self.unet.mid_block)
+                    + torch_dfs(self.unet.up_blocks)
+                    if isinstance(
+                        module, (BasicTransformerBlock, _BasicTransformerBlock)
+                    )
+                ]
             elif self.fusion_blocks == "full":
-                reader_attn_modules = [module for module in torch_dfs(self.unet) if isinstance(module, BasicTransformerBlock) or isinstance(module, _BasicTransformerBlock)]
+                reader_attn_modules = [
+                    module
+                    for module in torch_dfs(self.unet)
+                    if isinstance(
+                        module, (BasicTransformerBlock, _BasicTransformerBlock)
+                    )
+                ]
             reader_attn_modules = sorted(reader_attn_modules, key=lambda x: -x.norm1.normalized_shape[0])
             for r in reader_attn_modules:
                 r.bank.clear()

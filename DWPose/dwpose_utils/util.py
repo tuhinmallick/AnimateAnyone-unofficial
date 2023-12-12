@@ -14,11 +14,10 @@ def smart_resize(x, s):
         Co = 1
     else:
         Ho, Wo, Co = x.shape
-    if Co == 3 or Co == 1:
-        k = float(Ht + Wt) / float(Ho + Wo)
-        return cv2.resize(x, (int(Wt), int(Ht)), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LANCZOS4)
-    else:
+    if Co not in [3, 1]:
         return np.stack([smart_resize(x[:, :, i], s) for i in range(Co)], axis=2)
+    k = float(Ht + Wt) / float(Ho + Wo)
+    return cv2.resize(x, (int(Wt), int(Ht)), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LANCZOS4)
 
 
 def smart_resize_k(x, fx, fy):
@@ -28,11 +27,10 @@ def smart_resize_k(x, fx, fy):
     else:
         Ho, Wo, Co = x.shape
     Ht, Wt = Ho * fy, Wo * fx
-    if Co == 3 or Co == 1:
-        k = float(Ht + Wt) / float(Ho + Wo)
-        return cv2.resize(x, (int(Wt), int(Ht)), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LANCZOS4)
-    else:
+    if Co not in [3, 1]:
         return np.stack([smart_resize_k(x[:, :, i], fx, fy) for i in range(Co)], axis=2)
+    k = float(Ht + Wt) / float(Ho + Wo)
+    return cv2.resize(x, (int(Wt), int(Ht)), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LANCZOS4)
 
 
 def padRightDownCorner(img, stride, padValue):
@@ -59,10 +57,10 @@ def padRightDownCorner(img, stride, padValue):
 
 
 def transfer(model, model_weights):
-    transfered_model_weights = {}
-    for weights_name in model.state_dict().keys():
-        transfered_model_weights[weights_name] = model_weights['.'.join(weights_name.split('.')[1:])]
-    return transfered_model_weights
+    return {
+        weights_name: model_weights['.'.join(weights_name.split('.')[1:])]
+        for weights_name in model.state_dict().keys()
+    }
 
 
 def draw_bodypose(canvas, candidate, subset):
@@ -101,10 +99,10 @@ def draw_bodypose(canvas, candidate, subset):
             index = int(subset[n][i])
             if index == -1:
                 continue
-            x, y = candidate[index][0:2]
+            x, y = candidate[index][:2]
             x = int(x * W)
             y = int(y * H)
-            cv2.circle(canvas, (int(x), int(y)), 4, colors[i], thickness=-1)
+            cv2.circle(canvas, (x, y), 4, colors[i], thickness=-1)
 
     return canvas
 
@@ -128,7 +126,7 @@ def draw_handpose(canvas, all_hand_peaks):
             if x1 > eps and y1 > eps and x2 > eps and y2 > eps:
                 cv2.line(canvas, (x1, y1), (x2, y2), matplotlib.colors.hsv_to_rgb([ie / float(len(edges)), 1.0, 1.0]) * 255, thickness=2)
 
-        for i, keyponit in enumerate(peaks):
+        for keyponit in peaks:
             x, y = keyponit
             x = int(x * W)
             y = int(y * H)
@@ -157,7 +155,7 @@ def handDetect(candidate, subset, oriImg):
     # left hand: wrist 7, elbow 6, shoulder 5
     ratioWristElbow = 0.33
     detect_result = []
-    image_height, image_width = oriImg.shape[0:2]
+    image_height, image_width = oriImg.shape[:2]
     for person in subset.astype(int):
         # if any of three not detected
         has_left = np.sum(person[[5, 6, 7]] == -1) == 0
@@ -198,8 +196,8 @@ def handDetect(candidate, subset, oriImg):
             x -= width / 2
             y -= width / 2  # width = height
             # overflow the image
-            if x < 0: x = 0
-            if y < 0: y = 0
+            x = max(x, 0)
+            y = max(y, 0)
             width1 = width
             width2 = width
             if x + width > image_width: width1 = image_width - x
@@ -221,7 +219,7 @@ def handDetect(candidate, subset, oriImg):
 def faceDetect(candidate, subset, oriImg):
     # left right eye ear 14 15 16 17
     detect_result = []
-    image_height, image_width = oriImg.shape[0:2]
+    image_height, image_width = oriImg.shape[:2]
     for person in subset.astype(int):
         has_head = person[0] > -1
         if not has_head:
@@ -265,12 +263,8 @@ def faceDetect(candidate, subset, oriImg):
         x -= width
         y -= width
 
-        if x < 0:
-            x = 0
-
-        if y < 0:
-            y = 0
-
+        x = max(x, 0)
+        y = max(y, 0)
         width1 = width * 2
         width2 = width * 2
 
